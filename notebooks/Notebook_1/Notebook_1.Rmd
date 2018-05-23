@@ -1,0 +1,430 @@
+---
+title: "Rules of interaction during movement, not votes before departure, govern group navigational decision making in terrestrial ungulate (*Capra aegagrus hircus*)"
+author: Sankey, D., O'Bryan, L., Garnier, S., Cowlishaw, G., Hopkins, P., Holton, M., Fürtbauer, I., King, A.
+output: 
+  html_notebook: 
+    fig_caption: yes
+    number_sections: yes
+    toc: yes
+---
+
+# Environment setup 
+
+```{r}
+if (!require(pacman))
+  install.packages("pacman")
+
+p_load(tibble, dplyr, reshape2, ggplot2, broom, cowplot, viridis, 
+       compete, zoo, knitr, geosphere, circular, goatCollectiveDecision)
+p_load_gh("hadley/multidplyr")
+
+data("theoretical")
+data("heading_data")
+data("loc_data")
+data("init_end")
+```
+
+---
+
+# Figure 1: theoretical predictions
+
+```{r, echo=FALSE, fig.width=8, fig.height=4.94}
+g1_1 <- ggplot(theoretical, aes(x = time)) + 
+  geom_vline(xintercept = 100, linetype = 2) +
+  geom_line(aes(y = all_vote), size = 1, color = "#1b9e77") + 
+  geom_line(aes(y = no_vote), size = 1, color = "#d95f02") +
+  geom_line(aes(y = sub_vote), size = 1, color = "#7570b3") + 
+  annotate("text", x = -43, y = 1, label = "All vote", color = "#1b9e77", hjust = 1, vjust = 1) + 
+  annotate("text", x = 43, y = 0, label = "Copying", color = "#d95f02", hjust = 0, vjust = 0) + 
+  annotate("text", x = 0, y = 0.4, label = "Sub vote", color = "#7570b3", hjust = 0.5, vjust = 0.5) + 
+  scale_x_continuous(name = "Time (sec)", breaks = seq(-150, 150, 50), labels = seq(-125, 25, 25)) + 
+  scale_y_continuous(name = "Decision parameter", labels = NULL) + 
+  theme_minimal(base_size = 12)
+
+g1_2 <- ggplot(theoretical, aes(x = time)) + 
+  geom_vline(xintercept = 100, linetype = 2) +
+  geom_line(aes(y = no_vote), size = 1) +
+  scale_x_continuous(name = "Time (sec)", breaks = seq(-150, 150, 50), labels = seq(-125, 25, 25)) + 
+  scale_y_continuous(name = "Average speed", labels = NULL) + 
+  theme_minimal(base_size = 12)
+
+correlation <- theoretical %>%
+  do(as.tibble(data.frame(lag = -21:21,
+                          no_vote = ccf(.$no_vote, .$speed, plot = FALSE)$acf,
+                          all_vote = ccf(.$all_vote, .$speed, plot = FALSE)$acf,
+                          sub_vote = ccf(.$sub_vote, .$speed, plot = FALSE)$acf)))
+
+g1_3 <- ggplot(correlation, aes(x = lag)) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  geom_line(aes(y = all_vote), size = 1, color = "#1b9e77") + 
+  geom_line(aes(y = no_vote), size = 1, color = "#d95f02") +
+  geom_line(aes(y = sub_vote), size = 1, color = "#7570b3") + 
+  scale_x_continuous(name = "Time lag", breaks = seq(-20, 20, 20), 
+                     labels = c("", 0, ""), limits = c(-22, 22)) + 
+  scale_y_continuous(name = "Correlation", labels = NULL) + 
+  theme_minimal(base_size = 10)
+
+summ_correlation <- tibble(type = factor(c("all_vote", "no_vote", "sub_vote"), 
+                                         c("all_vote", "sub_vote", "no_vote")),
+                           max_corr = c(correlation$lag[which.max(correlation$all_vote)], 
+                                        correlation$lag[which.max(correlation$no_vote)],
+                                        correlation$lag[which.max(correlation$sub_vote)]),
+                           symmetry = c(sum(correlation$all_vote[correlation$lag > 0]) -
+                                          sum(correlation$all_vote[correlation$lag < 0]),
+                                        sum(correlation$no_vote[correlation$lag > 0]) - 
+                                          sum(correlation$no_vote[correlation$lag < 0]),
+                                        sum(correlation$sub_vote[correlation$lag > 0]) - 
+                                          sum(correlation$sub_vote[correlation$lag < 0])))
+
+g1_4 <- ggplot(summ_correlation, aes(x = type, y = max_corr)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_point(size = 3, color = c("#1b9e77", "#d95f02", "#7570b3")) +
+  scale_x_discrete(name = NULL, labels = c("All vote", "Sub vote", "Copying")) +
+  scale_y_continuous(name = "Max time lag", labels = c("", "", "", 0, ""), limits = c(-25, 10)) + 
+  theme_minimal(base_size = 10)
+
+g1_5 <- ggplot(summ_correlation, aes(x = type, y = symmetry)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_point(size = 3, color = c("#1b9e77", "#d95f02", "#7570b3")) +
+  scale_x_discrete(name = NULL, labels = c("All vote", "Sub vote", "Copying")) +
+  scale_y_continuous(name = "Symmetry index", labels = c("", "", "", 0, ""), limits = c(-3, 1)) + 
+  theme_minimal(base_size = 10)
+
+ggdraw() +
+  draw_plot(g1_1, 0, .5, .5, .45) +
+  draw_plot(g1_2, 0, 0, .5, .45) +
+  draw_plot(g1_3, .5, 2 / 3, .5, 0.9 / 3) +
+  draw_plot(g1_4, .5, 1 / 3, .5, 0.9 / 3) +
+  draw_plot(g1_5, .5, 0, .5, 0.9 / 3) +
+  draw_plot_label(c("a", "b", "c", "d", "e"), c(0, 0, 0.975, 0.975, 0.975), 
+                  c(1, 0.5, 1, 2 / 3, 1 / 3), size = 15)
+```
+
+---
+
+# Figure 2: leadership matrices
+
+## Headings
+
+```{r}
+if (file.exists("heading_lead.RData")) {
+  load("heading_lead.RData")
+} else {
+  n_inds <- 10
+  n_events <- 21
+  
+  loop <- tibble(ind1 = rep(combn(1:n_inds, 2)[1, ], n_events),
+                 ind2 = rep(combn(1:n_inds, 2)[2, ], n_events),
+                 event = rep(1:n_events, 1, each = length(ind1) / n_events))
+  
+  cl <- create_cluster(4)
+  cluster_library(cl, c("tibble", "dplyr", "goatCollectiveDecision"))
+  cluster_assign_value(cl, "heading_data", heading_data) 
+  cluster_assign_value(cl, "init_end", init_end) 
+  
+  heading_lead <- partition(loop, ind1, ind2, event, cluster = cl) %>%
+    do(leader_follower(
+      filter(heading_data, id == .$ind1, event == .$event, time >= (init_end$init[.$event] - 100), time <= init_end$end[.$event])$heading,
+      filter(heading_data, id == .$ind2, event == .$event, time >= (init_end$init[.$event] - 100), time <= init_end$end[.$event])$heading,
+      lag.max = 20, id = c(.$ind1, .$ind2), each = 4, circular = TRUE)) %>%
+    collect()
+  
+  save(heading_lead, file = "heading_lead.RData")
+}
+```
+
+### Pre-departure statistics
+
+```{r}
+pre <- filter(heading_lead, time <= 400) %>%
+  mutate(interaction = rollmean(max_corr > 0.95, 3, fill = 0) > 0.5,
+         group = rep(seq_along(rle(interaction)$lengths),  rle(interaction)$lengths)) %>%
+  filter(interaction) %>%
+  group_by(ind1, ind2, event, group) %>%
+  summarize(max_lag = mean(max_lag)) %>%
+  mutate(quant = sign(max_lag),
+         result = ifelse(quant == -1, 1, ifelse(quant == 1, 0, 0.5))) 
+
+N_mat_pre <- matrix(0, nrow = 10, ncol = 10)
+wl_mat_pre <- matrix(0, nrow = 10, ncol = 10)
+for (i in 1:nrow(pre)) {
+  N_mat_pre[pre$ind1[i], pre$ind2[i]] <- N_mat_pre[pre$ind1[i], pre$ind2[i]] + 1
+  wl_mat_pre[pre$ind1[i], pre$ind2[i]] <- wl_mat_pre[pre$ind1[i], pre$ind2[i]] + pre$result[i]
+  wl_mat_pre[pre$ind2[i], pre$ind1[i]] <- wl_mat_pre[pre$ind2[i], pre$ind1[i]] + (1 - pre$result[i])
+}
+
+david <- ds(wl_mat_pre, norm = TRUE)
+trans <- ttri_test(wl_mat_pre)
+dc_skew <- dc_test(wl_mat_pre, N = round(mean(N_mat_pre[upper.tri(N_mat_pre)])), ntimes = 10000)
+
+res <- matrix(c(trans$ttri, trans$pval, dc_skew$DC, dc_skew$DC.pvalue, dc_skew$phi, dc_skew$phi.pvalue),
+              nrow = 2, ncol = 3, 
+              dimnames = list(c("Value", "P-value"), 
+                              c("Triangle transitivity", "Directional consistency", "Skew-symmetry")))
+kable(res)
+
+diag(wl_mat_pre) <- NA
+wl_df_pre <- melt(wl_mat_pre) %>%
+  mutate(Var1 = factor(Var1, levels = order(david)),
+         Var2 = factor(Var2, levels = order(david)),
+         type = "pre")
+```
+
+### In-motion statistics
+
+```{r}
+post <- filter(heading_lead, time > 400, time <= 800) %>%
+  mutate(interaction = rollmean(max_corr > 0.95, 3, fill = 0) > 0.5,
+         group = rep(seq_along(rle(interaction)$lengths),  rle(interaction)$lengths)) %>%
+  filter(interaction) %>%
+  group_by(ind1, ind2, event, group) %>%
+  summarize(max_lag = mean(max_lag)) %>%
+  mutate(quant = sign(max_lag),
+         result = ifelse(quant == -1, 1, ifelse(quant == 1, 0, 0.5))) 
+
+N_mat_post <- matrix(0, nrow = 10, ncol = 10)
+wl_mat_post <- matrix(0, nrow = 10, ncol = 10, dimnames = list(1:10, 1:10))
+for (i in 1:nrow(post)) {
+  N_mat_post[post$ind1[i], post$ind2[i]] <- N_mat_post[post$ind1[i], post$ind2[i]] + 1
+  wl_mat_post[post$ind1[i], post$ind2[i]] <- wl_mat_post[post$ind1[i], post$ind2[i]] + post$result[i]
+  wl_mat_post[post$ind2[i], post$ind1[i]] <- wl_mat_post[post$ind2[i], post$ind1[i]] + (1 - post$result[i])
+}
+
+david <- ds(wl_mat_post, norm = TRUE)
+trans <- ttri_test(wl_mat_post)
+dc_skew <- dc_test(wl_mat_post, N = round(mean(N_mat_post[upper.tri(N_mat_post)])), ntimes = 10000)
+
+res <- matrix(c(trans$ttri, trans$pval, dc_skew$DC, dc_skew$DC.pvalue, dc_skew$phi, dc_skew$phi.pvalue),
+              nrow = 2, ncol = 3, 
+              dimnames = list(c("Value", "P-value"), 
+                              c("Triangle transitivity", "Directional consistency", "Skew-symmetry")))
+kable(res)
+
+diag(wl_mat_post) <- NA
+wl_df_post <- melt(wl_mat_post) %>%
+  mutate(Var1 = factor(Var1, levels = order(david)),
+         Var2 = factor(Var2, levels = order(david)),
+         type = "post")
+```
+
+### Figure
+
+```{r, fig.width=8, fig.height=4.94}
+g2_1 <- ggplot(wl_df_pre, aes(x = as.factor(Var1), y = as.factor(Var2), fill = value)) +
+  geom_tile() +
+  xlab("Leader ID") + ylab("Follower ID") + 
+  coord_equal() +
+  scale_fill_viridis(name = "Score") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position="bottom")
+
+g2_2 <- ggplot(wl_df_post, aes(x = as.factor(Var1), y = as.factor(Var2), fill = value)) +
+  geom_tile() +
+  xlab("Leader ID") + ylab("Follower ID") + 
+  coord_equal() +
+  scale_fill_viridis(name = "Score") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position="bottom")
+
+ggdraw() +
+  draw_plot(g2_1, 0, 0, .45, 1) +
+  draw_plot(g2_2, 0.5, 0, .45, 1) +
+  draw_plot_label(c("a", "b"), c(0, 0.5), c(1, 1), size = 15)
+```
+
+---
+
+# Figure 3-4: hypothesis testing
+
+```{r}
+suppressWarnings(
+  hyp_data <- left_join(loc_data, heading_data) %>%
+    group_by(event, id) %>%
+    filter(time >= (init_end$init[event] - 101), time <= init_end$init[event]) %>%
+    mutate(speed = linDist(lon, lat, geo = TRUE)) %>%
+    ungroup() %>%
+    mutate(heading = circular(heading)) %>%
+    group_by(event, time) %>%
+    summarize(speed = mean(speed, na.rm = TRUE),
+              gddd = mean.circular(heading, na.rm = FALSE),
+              rho = rho.circular(heading, na.rm = TRUE)) %>%
+    mutate(time = time - min(time, na.rm = TRUE)) %>%
+    mutate(gddd = (sqrt(((sin(gddd) + sin(gddd[time == 100])) / 2) ^ 2 + 
+                          ((cos(gddd) + cos(gddd[time == 100])) / 2) ^ 2))) %>%
+    ungroup() %>%
+    filter(time > 0)
+)
+
+cl <- create_cluster(4)
+cluster_library(cl, c("tibble", "dplyr", "broom"))
+
+boot_data <- hyp_data %>% 
+  partition(time, cluster = cl) %>%
+  do(bootstrap(., 1000, by_group = TRUE) %>% 
+       do(speed = mean(.$speed, na.rm = TRUE),
+          gddd = mean(.$gddd, na.rm = TRUE),
+          rho = mean(.$rho, na.rm = TRUE))) %>%
+  collect() %>%
+  mutate(speed = unlist(speed),
+         gddd = unlist(gddd),
+         rho = unlist(rho)) 
+```
+
+```{r, fig.width=12, fig.height=4}
+alpha <- 0.05
+stats_data <- boot_data %>%
+  group_by(time) %>%
+  summarize(speed_low = quantile(speed, alpha / 2),
+            speed_high = quantile(speed, 1 - alpha / 2),
+            gddd_low = quantile(gddd, alpha / 2),
+            gddd_high = quantile(gddd, 1 - alpha / 2),
+            rho_low = quantile(rho, alpha / 2),
+            rho_high = quantile(rho, 1 - alpha / 2)) %>%
+  inner_join(hyp_data %>%
+              group_by(time) %>%
+              summarize(speed = mean(speed, na.rm = TRUE),
+                        gddd = mean(gddd, na.rm = TRUE),
+                        rho = mean(rho, na.rm = TRUE)))
+
+g3_1 <- ggplot(stats_data, aes(x = time - 100, y = speed)) +
+  geom_path() +
+  geom_ribbon(aes(ymin = speed_low, ymax = speed_high), alpha = 0.3) + 
+  xlab("Time (sec)") + ylab(bquote("Speed ("*m~s^-1*")")) +
+  theme_minimal(base_size = 12)
+
+g3_2 <- ggplot(stats_data, aes(x = time - 100, y = gddd)) +
+  geom_path() +
+  geom_ribbon(aes(ymin = gddd_low, ymax = gddd_high), alpha = 0.3) + 
+  xlab("Time (sec)") + ylab("Decision parameter") +
+  theme_minimal(base_size = 12)
+
+g3_3 <- ggplot(stats_data, aes(x = time - 100, y = rho)) +
+  geom_path() +
+  geom_ribbon(aes(ymin = rho_low, ymax = rho_high), alpha = 0.3) + 
+  xlab("Time (sec)") + ylab("Polar order parameter") +
+  theme_minimal(base_size = 12)
+
+ggdraw() +
+  draw_plot(g3_1, 0, 0, (1 / 3) - (1 / 60), 1) +
+  draw_plot(g3_2, 1 / 3, 0, (1 / 3) - (1 / 60), 1) +
+  draw_plot(g3_3, 2 / 3, 0, (1 / 3) - (1 / 60), 1) +
+  draw_plot_label(c("a", "b", "c"), c(0, 1 / 3, 2 / 3), c(1, 1, 1), size = 15)
+```
+
+```{r}
+tmp <- hyp_data %>%
+  group_by(event)
+
+corr_data <- tmp %>%
+  do(tidy(ccf(.$speed, .$gddd, plot = FALSE))) %>%
+  rename(speed_gddd = acf) %>%
+  inner_join(tmp %>%
+               do(tidy(ccf(.$rho, .$gddd, plot = FALSE))) %>%
+               rename(rho_gddd = acf)) %>%
+  inner_join(tmp %>%
+               do(tidy(ccf(.$speed, .$rho, plot = FALSE))) %>%
+               rename(speed_rho = acf)) %>%
+  ungroup() %>% group_by(lag) %>%
+  summarize(speed_gddd = mean(speed_gddd, na.rm = TRUE),
+            rho_gddd = mean(rho_gddd, na.rm = TRUE),
+            speed_rho = mean(speed_rho, na.rm = TRUE))
+
+g4_1 <- ggplot(corr_data, aes(x = lag, y = speed_gddd)) +
+  geom_pointrange(aes(ymin = 0, ymax = speed_gddd), size = 0.25) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  xlab("Time lag (sec)") + ylab("Correlation value") +
+  theme_minimal(base_size = 10)
+
+g4_2 <- ggplot(corr_data, aes(x = lag, y = rho_gddd)) +
+  geom_pointrange(aes(ymin = 0, ymax = rho_gddd), size = 0.25) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  xlab("Time lag (sec)") + ylab("Correlation value") +
+  theme_minimal(base_size = 10)
+
+g4_3 <- ggplot(corr_data, aes(x = lag, y = speed_rho)) +
+  geom_pointrange(aes(ymin = 0, ymax = speed_rho), size = 0.25) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  xlab("Time lag (sec)") + ylab("Correlation value") +
+  theme_minimal(base_size = 10)
+```
+
+```{r}
+corr_summ_data <- hyp_data %>%
+  group_by(event) %>%
+  summarize(lag_speed_gddd = bestLag(speed, gddd),
+            sym_speed_gddd = ccfSym(speed, gddd),
+            lag_rho_gddd = bestLag(rho, gddd),
+            sym_rho_gddd = ccfSym(rho, gddd),
+            lag_speed_rho = bestLag(speed, rho),
+            sym_speed_rho = ccfSym(speed, rho))
+
+boot_data2 <- corr_summ_data %>%
+  bootstrap(1000) %>%
+  do(lag_speed_gddd = mean(.$lag_speed_gddd),
+     sym_speed_gddd = mean(.$sym_speed_gddd),
+     lag_rho_gddd = mean(.$lag_rho_gddd),
+     sym_rho_gddd = mean(.$sym_rho_gddd),
+     lag_speed_rho = mean(.$lag_speed_rho),
+     sym_speed_rho = mean(.$sym_speed_rho)) %>%
+  mutate(lag_speed_gddd = unlist(lag_speed_gddd),
+         sym_speed_gddd = unlist(sym_speed_gddd),
+         lag_rho_gddd = unlist(lag_rho_gddd),
+         sym_rho_gddd = unlist(sym_rho_gddd),
+         lag_speed_rho = unlist(lag_speed_rho),
+         sym_speed_rho = unlist(sym_speed_rho)) %>%
+  ungroup()
+```
+
+```{r, fig.width=8, fig.height=4.94}
+alpha <- 0.05
+summ_data <- boot_data2 %>%
+  melt(id = "replicate") %>%
+  group_by(variable) %>%
+  summarize(low = quantile(value, alpha / 2),
+            high = quantile(value, 1 - alpha / 2)) %>%
+  inner_join(corr_summ_data %>% 
+               melt(id = "event") %>%
+               group_by(variable) %>%
+               summarize(avg = mean(value, na.rm = TRUE)))
+
+g5_1 <- ggplot(filter(summ_data, variable %in% c("lag_speed_gddd", "sym_speed_gddd")), aes(x = variable, y = avg)) +
+  geom_errorbar(aes(ymin = low, ymax = high), width = .1) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  scale_x_discrete(labels = c("Max time lag", "CCF symmetry")) + 
+  xlab("Speed vs Decision parameter") + ylab("Average value") +
+  theme_minimal(base_size = 10)
+
+g5_2 <- ggplot(filter(summ_data, variable %in% c("lag_rho_gddd", "sym_rho_gddd")), aes(x = variable, y = avg)) +
+  geom_errorbar(aes(ymin = low, ymax = high), width = .1) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  scale_x_discrete(labels = c("Max time lag", "CCF symmetry")) + 
+  xlab("Polar order parameter vs Decision parameter") + ylab("Average value") +
+  theme_minimal(base_size = 10)
+
+g5_3 <- ggplot(filter(summ_data, variable %in% c("lag_speed_rho", "sym_speed_rho")), aes(x = variable, y = avg)) +
+  geom_errorbar(aes(ymin = low, ymax = high), width = .1) +
+  geom_point(size = 3) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  scale_x_discrete(labels = c("Max time lag", "CCF symmetry")) + 
+  xlab("Polar order parameter vs Speed") + ylab("Average value") +
+  theme_minimal(base_size = 10)
+
+ggdraw() +
+  draw_plot(g4_1, 0, 0.5, .3, 0.5) +
+  draw_plot(g5_1, 0, 0, .3, 0.5) +
+  draw_plot(g4_2, 1 / 3, 0.5, .3, 0.5) +
+  draw_plot(g5_2, 1 / 3, 0, .3, 0.5) +
+  draw_plot(g4_3, 2 / 3, 0.5, .3, 0.5) +
+  draw_plot(g5_3, 2 / 3, 0, .3, 0.5) +
+  draw_plot_label(c("a", "b", "c", "d", "e", "f"), c(0, 0, 1 / 3, 1 / 3, 2 / 3, 2 / 3), c(1, 0.5, 1, 0.5, 1, 0.5), size = 15)
+```
+
+
+
+
+
+
+
+
